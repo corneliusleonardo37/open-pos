@@ -13,19 +13,6 @@ type CartPayloadItem = {
   qty: number;
 };
 
-type SaleItemSnapshot = {
-  product_id: string;
-  code: string;
-  name: string;
-  qty: number;
-  unit_price: number;
-  unit_cost: number;
-  line_total: number;
-  estimated_profit: number;
-  previous_stock: number;
-  next_stock: number;
-};
-
 export type SaleReceipt = {
   invoice_number: string;
   created_at: string;
@@ -47,6 +34,28 @@ export type SaleReceipt = {
 export type SaleFormState = {
   error: string | null;
   receipt: SaleReceipt | null;
+};
+
+type SubmitSaleRpcItem = {
+  code?: unknown;
+  name?: unknown;
+  qty?: unknown;
+  unit_price?: unknown;
+  line_total?: unknown;
+};
+
+type SubmitSaleRpcResult = {
+  sale_id: string;
+  invoice_number: string;
+  total: number | string;
+  paid_amount: number | string;
+  change_amount: number | string;
+  created_at: string;
+  payment_method: PaymentMethod;
+  subtotal: number | string;
+  discount: number | string;
+  total_qty: number | string;
+  items: SubmitSaleRpcItem[] | null;
 };
 
 async function requireSalesProfile() {
@@ -72,6 +81,26 @@ function readNumber(formData: FormData, field: string, label: string) {
   }
 
   return value;
+}
+
+function toNumber(value: number | string | null | undefined) {
+  const parsedValue = Number(value ?? 0);
+
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
+}
+
+function readReceiptItems(items: SubmitSaleRpcResult["items"]) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.map((item) => ({
+    code: String(item.code ?? ""),
+    name: String(item.name ?? ""),
+    qty: toNumber(item.qty as number | string | null | undefined),
+    unit_price: toNumber(item.unit_price as number | string | null | undefined),
+    line_total: toNumber(item.line_total as number | string | null | undefined),
+  }));
 }
 
 function readPaymentMethod(formData: FormData): PaymentMethod {
@@ -159,220 +188,51 @@ export async function createSaleAction(
     const discountInput = readNumber(formData, "discount", "Diskon");
     const paidAmountInput = readNumber(formData, "paid_amount", "Dibayar");
     const paymentMethod = readPaymentMethod(formData);
-    const productIds = Array.from(new Set(cart.map((item) => item.product_id)));
-
-    const { data: products, error: productError } = await supabaseAdmin
-      .from("products")
-      .select("id, code, name, current_stock, cost_price, selling_price")
-      .eq("organization_id", profile.organization_id)
-      .eq("status", "Aktif")
-      .in("id", productIds);
-
-    if (productError) {
-      return { error: `Gagal membaca produk: ${productError.message}`, receipt: null };
-    }
-
-    const productMap = new Map(
-      (products ?? []).map((product) => [product.id as string, product]),
-    );
-
-    const itemSnapshots: SaleItemSnapshot[] = cart.map((item) => {
-      const product = productMap.get(item.product_id);
-
-      if (!product) {
-        throw new Error("Produk aktif di cart tidak ditemukan.");
-      }
-
-      const currentStock = Number(product.current_stock ?? 0);
-      const unitPrice = Number(product.selling_price ?? 0);
-      const unitCost = Number(product.cost_price ?? 0);
-
-      if (item.qty > currentStock) {
-        throw new Error(
-          `Stok ${product.code} - ${product.name} tidak cukup. Stok tersedia ${currentStock}.`,
-        );
-      }
-
-      const lineTotal = item.qty * unitPrice;
-
-      return {
-        product_id: item.product_id,
-        code: String(product.code),
-        name: String(product.name),
-        qty: item.qty,
-        unit_price: unitPrice,
-        unit_cost: unitCost,
-        line_total: lineTotal,
-        estimated_profit: (unitPrice - unitCost) * item.qty,
-        previous_stock: currentStock,
-        next_stock: currentStock - item.qty,
-      };
-    });
-
-    const subtotal = itemSnapshots.reduce(
-      (total, item) => total + item.line_total,
-      0,
-    );
-    const discount = Math.min(discountInput, subtotal);
-    const total = Math.max(subtotal - discount, 0);
-    const paidAmount =
-      paymentMethod === "Cash"
-        ? paidAmountInput
-        : paidAmountInput > 0
-          ? paidAmountInput
-          : total;
-
-    if (paidAmount < total) {
-      throw new Error("Nominal dibayar tidak boleh kurang dari total.");
-    }
-
-    const changeAmount = paymentMethod === "Cash" ? paidAmount - total : 0;
-    const totalQty = itemSnapshots.reduce((sum, item) => sum + item.qty, 0);
     const now = new Date();
     const invoiceNumber = createInvoiceNumber(now);
-    const updatedProducts: SaleItemSnapshot[] = [];
-    let saleId: string | null = null;
 
     const { data: sale, error: saleError } = await supabaseAdmin
-      .from("sales")
-      .insert({
-        organization_id: profile.organization_id,
-        branch_id: profile.branch_id,
-        invoice_number: invoiceNumber,
-        total_qty: totalQty,
-        subtotal,
-        discount,
-        total,
-        payment_method: paymentMethod,
-        paid_amount: paidAmount,
-        change_amount: changeAmount,
-        created_by: profile.id,
+      .rpc("submit_sale", {
+        p_organization_id: profile.organization_id,
+        p_branch_id: profile.branch_id,
+        p_created_by: profile.id,
+        p_invoice_number: invoiceNumber,
+        p_payment_method: paymentMethod,
+        p_discount: discountInput,
+        p_paid_amount: paidAmountInput,
+        p_items: cart,
       })
-      .select("id")
       .single();
 
     if (saleError || !sale) {
       return {
-        error: `Gagal menyimpan transaksi: ${
-          saleError?.message ?? "data sale tidak kembali"
+        error: `Gagal memproses transaksi: ${
+          saleError?.message ?? "data sale tidak kembali dari RPC"
         }`,
         receipt: null,
       };
     }
 
-    saleId = sale.id as string;
-
-    const { error: saleItemsError } = await supabaseAdmin
-      .from("sale_items")
-      .insert(
-        itemSnapshots.map((item) => ({
-          organization_id: profile.organization_id,
-          branch_id: profile.branch_id,
-          sale_id: saleId,
-          product_id: item.product_id,
-          qty: item.qty,
-          unit_price: item.unit_price,
-          line_total: item.line_total,
-          unit_cost: item.unit_cost,
-          estimated_profit: item.estimated_profit,
-        })),
-      );
-
-    if (saleItemsError) {
-      await supabaseAdmin.from("sales").delete().eq("id", saleId);
-
-      return {
-        error: `Gagal menyimpan item transaksi: ${saleItemsError.message}`,
-        receipt: null,
-      };
-    }
-
-    for (const item of itemSnapshots) {
-      const { data: updatedProduct, error: stockError } = await supabaseAdmin
-        .from("products")
-        .update({
-          current_stock: item.next_stock,
-          updated_at: now.toISOString(),
-        })
-        .eq("id", item.product_id)
-        .eq("organization_id", profile.organization_id)
-        .eq("current_stock", item.previous_stock)
-        .select("id")
-        .maybeSingle();
-
-      if (stockError || !updatedProduct) {
-        for (const updatedItem of updatedProducts) {
-          await supabaseAdmin
-            .from("products")
-            .update({
-              current_stock: updatedItem.previous_stock,
-              updated_at: now.toISOString(),
-            })
-            .eq("id", updatedItem.product_id)
-            .eq("organization_id", profile.organization_id);
-        }
-
-        await supabaseAdmin.from("sales").delete().eq("id", saleId);
-
-        return {
-          error:
-            stockError?.message ??
-            "Stok berubah saat transaksi diproses. Transaksi dibatalkan, silakan muat ulang.",
-          receipt: null,
-        };
-      }
-
-      updatedProducts.push(item);
-    }
-
-    await supabaseAdmin.from("audit_logs").insert({
-      organization_id: profile.organization_id,
-      branch_id: profile.branch_id,
-      actor_profile_id: profile.id,
-      action: "sale_created",
-      entity_type: "sales",
-      entity_id: saleId,
-      metadata: {
-        invoice_number: invoiceNumber,
-        total_qty: totalQty,
-        subtotal,
-        discount,
-        total,
-        payment_method: paymentMethod,
-        paid_amount: paidAmount,
-        change_amount: changeAmount,
-        items: itemSnapshots.map((item) => ({
-          product_id: item.product_id,
-          code: item.code,
-          name: item.name,
-          qty: item.qty,
-          previous_stock: item.previous_stock,
-          next_stock: item.next_stock,
-        })),
-      },
-    });
+    const submittedSale = sale as SubmitSaleRpcResult;
 
     revalidatePath("/sales");
     revalidatePath("/products");
+    revalidatePath("/dashboard");
+    revalidatePath("/reports");
+    revalidatePath("/audit-log");
 
     return {
       error: null,
       receipt: {
-        invoice_number: invoiceNumber,
-        created_at: now.toISOString(),
-        payment_method: paymentMethod,
-        subtotal,
-        discount,
-        total,
-        paid_amount: paidAmount,
-        change_amount: changeAmount,
-        items: itemSnapshots.map((item) => ({
-          code: item.code,
-          name: item.name,
-          qty: item.qty,
-          unit_price: item.unit_price,
-          line_total: item.line_total,
-        })),
+        invoice_number: submittedSale.invoice_number,
+        created_at: submittedSale.created_at ?? now.toISOString(),
+        payment_method: submittedSale.payment_method,
+        subtotal: toNumber(submittedSale.subtotal),
+        discount: toNumber(submittedSale.discount),
+        total: toNumber(submittedSale.total),
+        paid_amount: toNumber(submittedSale.paid_amount),
+        change_amount: toNumber(submittedSale.change_amount),
+        items: readReceiptItems(submittedSale.items),
       },
     };
   } catch (error) {
