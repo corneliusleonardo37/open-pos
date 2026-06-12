@@ -24,9 +24,11 @@ create table profiles (
   full_name text not null,
   email text not null,
   role text not null,
+  status text not null default 'Aktif',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint profiles_role_check check (role in ('Owner', 'Kasir')),
+  constraint profiles_status_check check (status in ('Aktif', 'Nonaktif')),
   constraint profiles_email_unique unique (email)
 );
 
@@ -35,11 +37,21 @@ create table products (
   organization_id uuid not null references organizations(id) on delete cascade,
   code text not null,
   name text not null,
+  category text,
+  unit text,
+  initial_stock numeric(14, 2) not null default 0,
+  current_stock numeric(14, 2) not null default 0,
+  cost_price numeric(14, 2) not null default 0,
   selling_price numeric(14, 2) not null default 0,
+  minimum_stock numeric(14, 2) not null default 0,
   status text not null default 'Aktif',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  constraint products_initial_stock_non_negative check (initial_stock >= 0),
+  constraint products_current_stock_non_negative check (current_stock >= 0),
+  constraint products_cost_price_non_negative check (cost_price >= 0),
   constraint products_selling_price_non_negative check (selling_price >= 0),
+  constraint products_minimum_stock_non_negative check (minimum_stock >= 0),
   constraint products_status_check check (status in ('Aktif', 'Nonaktif')),
   constraint products_code_per_organization_unique unique (organization_id, code)
 );
@@ -51,10 +63,11 @@ create table stock_ins (
   product_id uuid not null references products(id) on delete restrict,
   qty numeric(14, 2) not null,
   unit_cost numeric(14, 2) not null default 0,
+  supplier text,
   note text,
   created_by uuid references profiles(id) on delete set null,
   created_at timestamptz not null default now(),
-  constraint stock_ins_qty_non_negative check (qty >= 0),
+  constraint stock_ins_qty_positive check (qty > 0),
   constraint stock_ins_unit_cost_non_negative check (unit_cost >= 0)
 );
 
@@ -63,15 +76,19 @@ create table sales (
   organization_id uuid not null references organizations(id) on delete cascade,
   branch_id uuid not null references branches(id) on delete restrict,
   invoice_number text not null,
-  payment_method text not null,
+  total_qty numeric(14, 2) not null default 0,
   subtotal numeric(14, 2) not null default 0,
+  discount numeric(14, 2) not null default 0,
   total numeric(14, 2) not null default 0,
+  payment_method text not null,
   paid_amount numeric(14, 2) not null default 0,
   change_amount numeric(14, 2) not null default 0,
   created_by uuid references profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   constraint sales_payment_method_check check (payment_method in ('Cash', 'Transfer', 'QRIS')),
+  constraint sales_total_qty_non_negative check (total_qty >= 0),
   constraint sales_subtotal_non_negative check (subtotal >= 0),
+  constraint sales_discount_non_negative check (discount >= 0),
   constraint sales_total_non_negative check (total >= 0),
   constraint sales_paid_amount_non_negative check (paid_amount >= 0),
   constraint sales_change_amount_non_negative check (change_amount >= 0),
@@ -87,10 +104,13 @@ create table sale_items (
   qty numeric(14, 2) not null,
   unit_price numeric(14, 2) not null,
   line_total numeric(14, 2) not null,
+  unit_cost numeric(14, 2) not null default 0,
+  estimated_profit numeric(14, 2) not null default 0,
   created_at timestamptz not null default now(),
-  constraint sale_items_qty_non_negative check (qty >= 0),
+  constraint sale_items_qty_positive check (qty > 0),
   constraint sale_items_unit_price_non_negative check (unit_price >= 0),
-  constraint sale_items_line_total_non_negative check (line_total >= 0)
+  constraint sale_items_line_total_non_negative check (line_total >= 0),
+  constraint sale_items_unit_cost_non_negative check (unit_cost >= 0)
 );
 
 create table audit_logs (
@@ -112,6 +132,8 @@ create index profiles_branch_id_idx on profiles (branch_id);
 
 create index products_organization_id_idx on products (organization_id);
 create index products_code_idx on products (code);
+create index products_status_idx on products (status);
+create index products_current_stock_idx on products (current_stock);
 
 create index stock_ins_organization_id_idx on stock_ins (organization_id);
 create index stock_ins_branch_id_idx on stock_ins (branch_id);
@@ -120,6 +142,7 @@ create index stock_ins_created_at_idx on stock_ins (created_at);
 
 create index sales_organization_id_idx on sales (organization_id);
 create index sales_branch_id_idx on sales (branch_id);
+create index sales_invoice_number_idx on sales (invoice_number);
 create index sales_created_at_idx on sales (created_at);
 
 create index sale_items_organization_id_idx on sale_items (organization_id);
