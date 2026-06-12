@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import type { CurrentUserProfile } from "@/lib/database/profiles";
+
 const navigationItems = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/products", label: "Produk" },
-  { href: "/stock-in", label: "Barang masuk" },
-  { href: "/sales", label: "Penjualan" },
-  { href: "/reports", label: "Laporan" },
-  { href: "/audit-log", label: "Audit log" },
-  { href: "/users", label: "User" },
+  { href: "/dashboard", label: "Dashboard", roles: ["Owner", "Kasir"] },
+  { href: "/products", label: "Produk", roles: ["Owner"] },
+  { href: "/stock-in", label: "Barang masuk", roles: ["Owner"] },
+  { href: "/sales", label: "Penjualan", roles: ["Owner", "Kasir"] },
+  { href: "/reports", label: "Laporan", roles: ["Owner"] },
+  { href: "/audit-log", label: "Audit log", roles: ["Owner"] },
+  { href: "/users", label: "User", roles: ["Owner"] },
 ];
 
 function NavigationLink({
@@ -43,7 +45,17 @@ function NavigationLink({
   );
 }
 
-export function AppSidebar({ variant = "desktop" }: { variant?: "desktop" | "mobile" }) {
+export function AppSidebar({
+  role,
+  variant = "desktop",
+}: {
+  role: CurrentUserProfile["role"];
+  variant?: "desktop" | "mobile";
+}) {
+  const visibleNavigationItems = navigationItems.filter((item) =>
+    item.roles.includes(role),
+  );
+
   if (variant === "mobile") {
     return (
       <nav
@@ -51,8 +63,13 @@ export function AppSidebar({ variant = "desktop" }: { variant?: "desktop" | "mob
         aria-label="Mobile navigation"
       >
         <div className="flex gap-2 overflow-x-auto pb-1">
-          {navigationItems.map((item) => (
-            <NavigationLink key={item.href} {...item} compact />
+          {visibleNavigationItems.map((item) => (
+            <NavigationLink
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              compact
+            />
           ))}
         </div>
       </nav>
@@ -66,8 +83,8 @@ export function AppSidebar({ variant = "desktop" }: { variant?: "desktop" | "mob
         <p className="mt-1 text-sm text-zinc-500">Back office</p>
       </div>
       <nav className="mt-8 flex flex-col gap-1" aria-label="Main navigation">
-        {navigationItems.map((item) => (
-          <NavigationLink key={item.href} {...item} />
+        {visibleNavigationItems.map((item) => (
+          <NavigationLink key={item.href} href={item.href} label={item.label} />
         ))}
       </nav>
     </aside>

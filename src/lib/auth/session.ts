@@ -30,3 +30,10 @@ export async function getAuthAccessToken() {
 
   return cookieStore.get(AUTH_ACCESS_TOKEN_COOKIE)?.value ?? null;
 }
+
+export async function clearAuthSessionCookies() {
+  const cookieStore = await cookies();
+
+  cookieStore.delete(AUTH_ACCESS_TOKEN_COOKIE);
+  cookieStore.delete(AUTH_REFRESH_TOKEN_COOKIE);
+}
