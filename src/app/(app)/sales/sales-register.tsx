@@ -38,6 +38,30 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function normalizeQtyInput(value: string) {
+  const integerPart = value.split(/[.,]/)[0] ?? "";
+  const digitsOnly = integerPart.replace(/\D/g, "");
+
+  return digitsOnly.replace(/^0+(?=\d)/, "");
+}
+
+function clampQty(value: number, currentStock: number) {
+  const stockLimit = Math.max(Math.floor(currentStock), 1);
+
+  return Math.min(Math.max(Math.trunc(value), 1), stockLimit);
+}
+
+function removeQtyInput(
+  currentInputs: Record<string, string>,
+  productId: string,
+) {
+  const nextInputs = { ...currentInputs };
+
+  delete nextInputs[productId];
+
+  return nextInputs;
+}
+
 function MoneyInput({
   label,
   value,
@@ -171,6 +195,7 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
   const [paidAmount, setPaidAmount] = useState("0");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
   const [receipt, setReceipt] = useState<SaleReceipt | null>(null);
+  const [qtyInputs, setQtyInputs] = useState<Record<string, string>>({});
   const [state, formAction, isPending] = useActionState(
     async (previousState: SaleFormState, formData: FormData) => {
       const result = await createSaleAction(previousState, formData);
@@ -181,6 +206,7 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
         setDiscount("0");
         setPaidAmount("0");
         setPaymentMethod("Cash");
+        setQtyInputs({});
       }
 
       return result;
@@ -229,6 +255,8 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
       return;
     }
 
+    setQtyInputs((currentInputs) => removeQtyInput(currentInputs, product.id));
+
     setCart((currentCart) => {
       const existingItem = currentCart.find(
         (item) => item.product.id === product.id,
@@ -249,28 +277,87 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
     });
   }
 
-  function updateQty(productId: string, value: string) {
-    const qty = Number(value);
+  function updateQty(productId: string, value: string, currentStock: number) {
+    const normalizedValue = normalizeQtyInput(value);
+
+    if (!normalizedValue) {
+      setQtyInputs((currentInputs) => ({
+        ...currentInputs,
+        [productId]: "",
+      }));
+
+      return;
+    }
+
+    const qty = Number(normalizedValue);
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setQtyInputs((currentInputs) => ({
+        ...currentInputs,
+        [productId]: normalizedValue,
+      }));
+
+      return;
+    }
+
+    const nextQty = clampQty(qty, currentStock);
+
+    setQtyInputs((currentInputs) => ({
+      ...currentInputs,
+      [productId]: String(nextQty),
+    }));
 
     setCart((currentCart) =>
       currentCart.map((item) =>
         item.product.id === productId
           ? {
               ...item,
-              qty:
-                Number.isFinite(qty) && qty > 0
-                  ? Math.min(qty, item.product.current_stock)
-                  : 1,
+              qty: nextQty,
             }
           : item,
       ),
     );
   }
 
+  function commitQty(item: CartItem) {
+    const rawValue = qtyInputs[item.product.id] ?? String(item.qty);
+    const qty = Number(rawValue);
+    const nextQty =
+      Number.isFinite(qty) && qty > 0
+        ? clampQty(qty, item.product.current_stock)
+        : 1;
+
+    setCart((currentCart) =>
+      currentCart.map((cartItem) =>
+        cartItem.product.id === item.product.id
+          ? {
+              ...cartItem,
+              qty: nextQty,
+            }
+          : cartItem,
+      ),
+    );
+    setQtyInputs((currentInputs) => {
+      return removeQtyInput(currentInputs, item.product.id);
+    });
+  }
+
+  function focusQty(item: CartItem) {
+    const displayValue = qtyInputs[item.product.id] ?? String(item.qty);
+
+    if (Number(displayValue || "0") === 1) {
+      setQtyInputs((currentInputs) => ({
+        ...currentInputs,
+        [item.product.id]: "",
+      }));
+    }
+  }
+
   function removeItem(productId: string) {
     setCart((currentCart) =>
       currentCart.filter((item) => item.product.id !== productId),
     );
+    setQtyInputs((currentInputs) => removeQtyInput(currentInputs, productId));
   }
 
   return (
@@ -386,14 +473,22 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
                           </td>
                           <td className="py-3 pr-4 text-right">
                             <input
-                              type="number"
-                              min="1"
-                              max={item.product.current_stock}
-                              step="0.01"
-                              value={item.qty}
-                              onChange={(event) =>
-                                updateQty(item.product.id, event.target.value)
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={
+                                qtyInputs[item.product.id] ?? String(item.qty)
                               }
+                              onChange={(event) =>
+                                updateQty(
+                                  item.product.id,
+                                  event.target.value,
+                                  item.product.current_stock,
+                                )
+                              }
+                              onFocus={() => focusQty(item)}
+                              onBlur={() => commitQty(item)}
+                              aria-label={`Qty ${item.product.name}`}
                               className="min-h-10 w-24 rounded-md border border-zinc-300 px-2 text-right text-sm text-zinc-950 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20"
                             />
                             <p className="mt-1 text-xs text-zinc-500">

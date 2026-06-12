@@ -110,6 +110,10 @@ function readCart(formData: FormData) {
       throw new Error("Qty item harus lebih dari 0.");
     }
 
+    if (!Number.isInteger(qty)) {
+      throw new Error("Qty item harus angka bulat.");
+    }
+
     cartByProduct.set(productId, (cartByProduct.get(productId) ?? 0) + qty);
   });
 
