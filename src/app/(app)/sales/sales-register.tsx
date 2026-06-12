@@ -19,6 +19,8 @@ type CartItem = {
   qty: number;
 };
 
+type PaymentMethod = "Cash" | "Transfer" | "QRIS";
+
 const initialState: SaleFormState = {
   error: null,
   receipt: null,
@@ -66,10 +68,12 @@ function MoneyInput({
   label,
   value,
   onChange,
+  readOnly = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }) {
   const displayValue = value ? formatNumberInput(value) : "";
 
@@ -78,15 +82,23 @@ function MoneyInput({
       {label}
       <input
         inputMode="decimal"
+        readOnly={readOnly}
         value={displayValue}
         onBlur={() => onChange(normalizeNumberInput(value))}
         onChange={(event) => onChange(parseNumberInput(event.target.value))}
         onFocus={() => {
+          if (readOnly) {
+            return;
+          }
+
           if (Number(value || "0") === 0) {
             onChange("");
           }
         }}
-        className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20"
+        className={[
+          "min-h-11 rounded-md border border-zinc-300 px-3 text-sm text-zinc-950 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20",
+          readOnly ? "bg-zinc-100 text-zinc-700" : "bg-white",
+        ].join(" ")}
       />
     </label>
   );
@@ -193,7 +205,7 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [discount, setDiscount] = useState("0");
   const [paidAmount, setPaidAmount] = useState("0");
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Cash");
   const [receipt, setReceipt] = useState<SaleReceipt | null>(null);
   const [qtyInputs, setQtyInputs] = useState<Record<string, string>>({});
   const [state, formAction, isPending] = useActionState(
@@ -235,14 +247,10 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
   );
   const discountValue = Math.min(Number(discount || "0"), subtotal);
   const total = Math.max(subtotal - discountValue, 0);
-  const paidValue =
-    paymentMethod === "Cash"
-      ? Number(paidAmount || "0")
-      : Number(paidAmount || "0") > 0
-        ? Number(paidAmount || "0")
-        : total;
-  const changeAmount =
-    paymentMethod === "Cash" ? Math.max(paidValue - total, 0) : 0;
+  const isCashPayment = paymentMethod === "Cash";
+  const effectivePaidAmount = isCashPayment ? paidAmount : String(total);
+  const paidValue = Number(effectivePaidAmount || "0");
+  const changeAmount = isCashPayment ? Math.max(paidValue - total, 0) : 0;
   const cartJson = JSON.stringify(
     cart.map((item) => ({
       product_id: item.product.id,
@@ -353,6 +361,18 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
     }
   }
 
+  function changePaymentMethod(value: string) {
+    if (value !== "Cash" && value !== "Transfer" && value !== "QRIS") {
+      return;
+    }
+
+    setPaymentMethod(value);
+
+    if (value === "Cash") {
+      setPaidAmount("0");
+    }
+  }
+
   function removeItem(productId: string) {
     setCart((currentCart) =>
       currentCart.filter((item) => item.product.id !== productId),
@@ -369,7 +389,11 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
       <form action={formAction}>
         <input type="hidden" name="cart_json" value={cartJson} />
         <input type="hidden" name="discount" value={discount || "0"} />
-        <input type="hidden" name="paid_amount" value={paidAmount || "0"} />
+        <input
+          type="hidden"
+          name="paid_amount"
+          value={effectivePaidAmount || "0"}
+        />
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
           <section className="rounded-lg border border-zinc-200 bg-white p-5">
@@ -543,7 +567,7 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
                 <select
                   name="payment_method"
                   value={paymentMethod}
-                  onChange={(event) => setPaymentMethod(event.target.value)}
+                  onChange={(event) => changePaymentMethod(event.target.value)}
                   className="min-h-11 rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20"
                 >
                   <option value="Cash">Cash</option>
@@ -553,8 +577,9 @@ export function SalesRegister({ products }: { products: SaleProductOption[] }) {
               </label>
               <MoneyInput
                 label="Paid amount"
-                value={paidAmount}
-                onChange={setPaidAmount}
+                value={effectivePaidAmount}
+                onChange={isCashPayment ? setPaidAmount : () => undefined}
+                readOnly={!isCashPayment}
               />
             </div>
 
