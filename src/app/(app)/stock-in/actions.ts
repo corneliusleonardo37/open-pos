@@ -76,102 +76,26 @@ export async function createStockInAction(
       throw new Error("Harga modal baru tidak boleh negatif.");
     }
 
-    const { data: product, error: productError } = await supabaseAdmin
-      .from("products")
-      .select("id, code, name, current_stock")
-      .eq("id", productId)
-      .eq("organization_id", profile.organization_id)
-      .eq("status", "Aktif")
-      .maybeSingle();
-
-    if (productError) {
-      return { error: `Gagal membaca produk: ${productError.message}` };
-    }
-
-    if (!product) {
-      throw new Error("Produk aktif tidak ditemukan.");
-    }
-
-    const previousStock = Number(product.current_stock ?? 0);
-    const nextStock = previousStock + qty;
-    const now = new Date().toISOString();
-
     const { data: stockIn, error: stockInError } = await supabaseAdmin
-      .from("stock_ins")
-      .insert({
-        organization_id: profile.organization_id,
-        branch_id: profile.branch_id,
-        product_id: productId,
-        qty,
-        unit_cost: unitCost,
-        supplier,
-        note,
-        created_by: profile.id,
+      .rpc("process_stock_in", {
+        p_organization_id: profile.organization_id,
+        p_branch_id: profile.branch_id,
+        p_created_by: profile.id,
+        p_product_id: productId,
+        p_qty: qty,
+        p_unit_cost: unitCost,
+        p_supplier: supplier,
+        p_note: note,
       })
-      .select("id")
       .single();
 
     if (stockInError || !stockIn) {
       return {
-        error: `Gagal menyimpan barang masuk: ${
-          stockInError?.message ?? "data stock_in tidak kembali"
+        error: `Gagal memproses barang masuk: ${
+          stockInError?.message ?? "data stock_in tidak kembali dari RPC"
         }`,
       };
     }
-
-    const productUpdate: {
-      current_stock: number;
-      cost_price?: number;
-      updated_at: string;
-    } = {
-      current_stock: nextStock,
-      updated_at: now,
-    };
-
-    if (unitCost > 0) {
-      productUpdate.cost_price = unitCost;
-    }
-
-    const { data: updatedProduct, error: updateError } = await supabaseAdmin
-      .from("products")
-      .update(productUpdate)
-      .eq("id", productId)
-      .eq("organization_id", profile.organization_id)
-      .eq("current_stock", previousStock)
-      .select("id")
-      .maybeSingle();
-
-    if (updateError) {
-      return {
-        error: `Barang masuk tercatat, tetapi stok produk gagal diupdate: ${updateError.message}`,
-      };
-    }
-
-    if (!updatedProduct) {
-      return {
-        error:
-          "Barang masuk tercatat, tetapi stok produk berubah oleh proses lain. Muat ulang halaman lalu cek stok produk.",
-      };
-    }
-
-    await supabaseAdmin.from("audit_logs").insert({
-      organization_id: profile.organization_id,
-      branch_id: profile.branch_id,
-      actor_profile_id: profile.id,
-      action: "stock_in_created",
-      entity_type: "stock_ins",
-      entity_id: stockIn.id,
-      metadata: {
-        product_id: productId,
-        product_code: product.code,
-        product_name: product.name,
-        qty,
-        previous_stock: previousStock,
-        next_stock: nextStock,
-        unit_cost: unitCost,
-        supplier,
-      },
-    });
   } catch (error) {
     return {
       error:
@@ -181,5 +105,7 @@ export async function createStockInAction(
 
   revalidatePath("/stock-in");
   revalidatePath("/products");
+  revalidatePath("/dashboard");
+  revalidatePath("/audit-log");
   redirect("/stock-in");
 }
