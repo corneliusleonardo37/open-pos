@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { getAuthAccessToken } from "@/lib/auth/session";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -11,7 +13,7 @@ export type CurrentUserProfile = {
   branch_id: string | null;
 };
 
-export async function getCurrentUserProfile(): Promise<CurrentUserProfile | null> {
+export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile | null> => {
   const accessToken = await getAuthAccessToken();
 
   if (!accessToken) {
@@ -44,4 +46,4 @@ export async function getCurrentUserProfile(): Promise<CurrentUserProfile | null
   }
 
   return data as CurrentUserProfile;
-}
+});
