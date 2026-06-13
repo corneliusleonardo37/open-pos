@@ -39,5 +39,9 @@ export async function getCurrentUserProfile(): Promise<CurrentUserProfile | null
     return null;
   }
 
+  if (data.status !== "Aktif") {
+    return null;
+  }
+
   return data as CurrentUserProfile;
 }
