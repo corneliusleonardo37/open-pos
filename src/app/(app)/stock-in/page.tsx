@@ -28,6 +28,20 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function StockInError({ message }: { message: string }) {
+  return (
+    <div className="max-w-6xl">
+      <h1 className="text-2xl font-semibold text-zinc-950">Barang masuk</h1>
+      <section className="mt-6 rounded-lg border border-red-200 bg-red-50 p-5">
+        <h2 className="text-base font-semibold text-red-800">
+          Barang masuk belum bisa dimuat
+        </h2>
+        <p className="mt-2 text-sm text-red-700">{message}</p>
+      </section>
+    </div>
+  );
+}
+
 export default async function StockInPage() {
   const profile = await getCurrentUserProfile();
 
@@ -39,10 +53,25 @@ export default async function StockInPage() {
     redirect("/dashboard");
   }
 
-  const [products, history] = await Promise.all([
-    getActiveProductOptions(profile.organization_id),
-    getRecentStockIns(profile.organization_id),
-  ]);
+  let products: Awaited<ReturnType<typeof getActiveProductOptions>> = [];
+  let history: Awaited<ReturnType<typeof getRecentStockIns>> = [];
+  let errorMessage: string | null = null;
+
+  try {
+    [products, history] = await Promise.all([
+      getActiveProductOptions(profile.organization_id),
+      getRecentStockIns(profile.organization_id),
+    ]);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Terjadi error saat membaca barang masuk.";
+  }
+
+  if (errorMessage) {
+    return <StockInError message={errorMessage} />;
+  }
 
   return (
     <div className="max-w-6xl">

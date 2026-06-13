@@ -38,6 +38,20 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function ProductsError({ message }: { message: string }) {
+  return (
+    <div className="max-w-7xl">
+      <h1 className="text-2xl font-semibold text-zinc-950">Produk</h1>
+      <section className="mt-6 rounded-lg border border-red-200 bg-red-50 p-5">
+        <h2 className="text-base font-semibold text-red-800">
+          Produk belum bisa dimuat
+        </h2>
+        <p className="mt-2 text-sm text-red-700">{message}</p>
+      </section>
+    </div>
+  );
+}
+
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
   const profile = await getCurrentUserProfile();
 
@@ -52,12 +66,29 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const params = await searchParams;
   const search = getSearchParamValue(params.search).trim();
   const editProductId = getSearchParamValue(params.edit).trim();
-  const [products, editingProduct] = await Promise.all([
-    getProductsByOrganization(profile.organization_id, search),
-    editProductId
-      ? getProductByIdForOrganization(editProductId, profile.organization_id)
-      : Promise.resolve(null),
-  ]);
+  let products: Awaited<ReturnType<typeof getProductsByOrganization>> = [];
+  let editingProduct: Awaited<
+    ReturnType<typeof getProductByIdForOrganization>
+  > = null;
+  let errorMessage: string | null = null;
+
+  try {
+    [products, editingProduct] = await Promise.all([
+      getProductsByOrganization(profile.organization_id, search),
+      editProductId
+        ? getProductByIdForOrganization(editProductId, profile.organization_id)
+        : Promise.resolve(null),
+    ]);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Terjadi error saat membaca produk.";
+  }
+
+  if (errorMessage) {
+    return <ProductsError message={errorMessage} />;
+  }
 
   return (
     <div className="max-w-7xl">

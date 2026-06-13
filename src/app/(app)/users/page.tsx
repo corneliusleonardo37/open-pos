@@ -34,6 +34,22 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function UsersError({ message }: { message: string }) {
+  return (
+    <div className="max-w-7xl">
+      <h1 className="text-2xl font-semibold text-zinc-950">
+        User Management
+      </h1>
+      <section className="mt-6 rounded-lg border border-red-200 bg-red-50 p-5">
+        <h2 className="text-base font-semibold text-red-800">
+          User belum bisa dimuat
+        </h2>
+        <p className="mt-2 text-sm text-red-700">{message}</p>
+      </section>
+    </div>
+  );
+}
+
 export default async function UsersPage({ searchParams }: UsersPageProps) {
   const profile = await getCurrentUserProfile();
 
@@ -49,13 +65,30 @@ export default async function UsersPage({ searchParams }: UsersPageProps) {
   const createdValue = getSearchParamValue(params.created);
   const userCreated = Boolean(createdValue);
   const editingUserId = getSearchParamValue(params.edit).trim();
-  const [users, branches, editingUser] = await Promise.all([
-    getUsersByOrganization(profile.organization_id),
-    getBranchesByOrganization(profile.organization_id),
-    editingUserId
-      ? getUserByIdForOrganization(editingUserId, profile.organization_id)
-      : Promise.resolve(null),
-  ]);
+  let users: Awaited<ReturnType<typeof getUsersByOrganization>> = [];
+  let branches: Awaited<ReturnType<typeof getBranchesByOrganization>> = [];
+  let editingUser: Awaited<ReturnType<typeof getUserByIdForOrganization>> =
+    null;
+  let errorMessage: string | null = null;
+
+  try {
+    [users, branches, editingUser] = await Promise.all([
+      getUsersByOrganization(profile.organization_id),
+      getBranchesByOrganization(profile.organization_id),
+      editingUserId
+        ? getUserByIdForOrganization(editingUserId, profile.organization_id)
+        : Promise.resolve(null),
+    ]);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Terjadi error saat membaca user.";
+  }
+
+  if (errorMessage) {
+    return <UsersError message={errorMessage} />;
+  }
 
   return (
     <div className="max-w-7xl">
